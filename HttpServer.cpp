@@ -4,6 +4,11 @@
 
 using namespace http;
 
+mg_serve_http_opts HttpServer::serverOpt_;
+string http::HttpServer::rootPath_ = "./web";
+std::unordered_map<std::string, ReqHandler> HttpServer::s_handler_map;
+std::unordered_set<mg_connection *> HttpServer::s_websocket_session_set;
+
 HttpServer::HttpServer() {
     serverOpt_.enable_directory_listing = "yes";
     serverOpt_.document_root = rootPath_.c_str();
@@ -59,22 +64,23 @@ void HttpServer::AddHandler(const std::string &url, ReqHandler req_handler) {
     s_handler_map.insert(std::make_pair(url, req_handler));
 }
 
-void HttpServer::SendHttpRsp(mg_connection *connection, std::string rsp) {
-    // --- 未开启CORS
-    // 必须先发送header, 暂时还不能用HTTP/2.0
+void HttpServer::SendHttpRsp(mg_connection *connection, const std::string& rsp) {
     mg_printf(connection, "%s", "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
-    // 以json形式返回
-    mg_printf_http_chunk(connection, "result: %s", rsp.c_str());
-    // 发送空白字符快，结束当前响应
-    mg_send_http_chunk(connection, "", 0);
 
-    // --- 开启CORS
-    /*mg_printf(connection, "HTTP/1.1 200 OK\r\n"
-              "Content-Type: text/plain\n"
-              "Cache-Control: no-cache\n"
-              "Content-Length: %d\n"
-              "Access-Control-Allow-Origin: *\n\n"
-              "%s\n", rsp.length(), rsp.c_str()); */
+    ExporterEntry tmp;
+    while (channel.try_pop(tmp)) {
+        ret.insert(tmp);
+    }
+
+    string retStr;
+    for (const auto &it: ret) {
+        char buf[64];
+        snprintf(buf, sizeof buf, "%s %s\r\n", it.first.c_str(), it.second.c_str());
+        retStr.append(buf);
+    }
+    mg_printf_http_chunk(connection, "%s", retStr.c_str());
+
+    mg_send_http_chunk(connection, "", 0);
 }
 
 void HttpServer::HandleHttpEvent(mg_connection *connection, http_message *http_req) {
@@ -87,7 +93,7 @@ void HttpServer::HandleHttpEvent(mg_connection *connection, http_message *http_r
     auto it = s_handler_map.find(url);
     if (it != s_handler_map.end()) {
         ReqHandler handle_func = it->second;
-        handle_func(url, body, connection, &HttpServer::SendHttpRsp);
+        it->second(url, body, connection, &HttpServer::SendHttpRsp);
     }
 
     // 其他请求

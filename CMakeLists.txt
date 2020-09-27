@@ -8,7 +8,3 @@ aux_source_directory(. SRC_DIR)
 include_directories(.)
 
 add_executable(${PROJECT_NAME} ${SRC_DIR})
-
-target_link_libraries(${PROJECT_NAME} http)
-
-
